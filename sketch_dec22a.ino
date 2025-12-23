@@ -11,7 +11,7 @@ const char *service_name = "PROV_1234";
 const char *pop = "abcd1234";
 
 // ================= LEDS =================
-#define LED_WIFI 2     // Pisca quando WiFi OFF
+#define LED_WIFI 2     // Pisca quando WiFi ON
 #define LED_MSG  4     // Pisca quando recebe comando
 
 volatile bool wifiOnline = false;
@@ -32,7 +32,7 @@ static Switch *my_switch = NULL;
 // ================= TASK LED WIFI =================
 void ledWifiTask(void *pvParameters) {
   pinMode(LED_WIFI, OUTPUT);
-  digitalWrite(LED_WIFI, LOW);
+  digitalWrite(LED_WIFI, HIGH);
 
   while (true) {
     if (!wifiOnline) {
@@ -41,7 +41,7 @@ void ledWifiTask(void *pvParameters) {
       digitalWrite(LED_WIFI, LOW);
       vTaskDelay(pdMS_TO_TICKS(500));
     } else {
-      digitalWrite(LED_WIFI, LOW);
+      digitalWrite(LED_WIFI, HIGH);
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
   }
