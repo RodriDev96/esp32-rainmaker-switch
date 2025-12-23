@@ -1,21 +1,23 @@
-// This example demonstrates the ESP RainMaker with a standard Switch device.
+// ================= INCLUDES =================
 #include "RMaker.h"
 #include "WiFi.h"
 #include "WiFiProv.h"
 #include "AppInsights.h"
 
-#define DEFAULT_POWER_MODE true
+// ================= CONFIG =================
+#define DEFAULT_POWER_MODE false   // 🔴 SEMPRE COMEÇA DESLIGADO
+
 const char *service_name = "PROV_1234";
 const char *pop = "abcd1234";
 
 // ================= LEDS =================
-#define LED_WIFI 2     // LED Wi-Fi OFFLINE
-#define LED_MSG  4     // LED Mensagem recebida
+#define LED_WIFI 2     // Pisca quando WiFi OFF
+#define LED_MSG  4     // Pisca quando recebe comando
 
 volatile bool wifiOnline = false;
 volatile bool msgReceived = false;
 
-// GPIO for push button
+// ================= GPIO =================
 #if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
 static int gpio_0 = 9;
 static int gpio_switch = 7;
@@ -24,7 +26,7 @@ static int gpio_0 = 0;
 static int gpio_switch = 16;
 #endif
 
-bool switch_state = true;
+bool switch_state = DEFAULT_POWER_MODE;
 static Switch *my_switch = NULL;
 
 // ================= TASK LED WIFI =================
@@ -65,7 +67,7 @@ void ledMsgTask(void *pvParameters) {
   }
 }
 
-// ================= WIFI / PROV EVENTS =================
+// ================= EVENTOS WIFI / PROV =================
 void sysProvEvent(arduino_event_t *sys_event) {
   switch (sys_event->event_id) {
 
@@ -103,16 +105,17 @@ void sysProvEvent(arduino_event_t *sys_event) {
   }
 }
 
-// ================= WRITE CALLBACK =================
+// ================= CALLBACK RAINMAKER =================
 void write_callback(Device *device, Param *param, const param_val_t val,
                     void *priv_data, write_ctx_t *ctx) {
 
-  if (strcmp(param->getParamName(), "Power") == 0) {
+  if (strcmp(param->getParamName(), ESP_RMAKER_DEF_POWER_NAME) == 0) {
 
-    msgReceived = true;  // 🔔 mensagem chegou
+    msgReceived = true;
 
     switch_state = val.val.b;
     digitalWrite(gpio_switch, switch_state ? HIGH : LOW);
+
     param->updateAndReport(val);
   }
 }
@@ -121,15 +124,21 @@ void write_callback(Device *device, Param *param, const param_val_t val,
 void setup() {
   Serial.begin(115200);
 
-  pinMode(gpio_0, INPUT);
+  pinMode(gpio_0, INPUT_PULLUP);
   pinMode(gpio_switch, OUTPUT);
+
+  // 🔒 Força relé desligado no boot
   digitalWrite(gpio_switch, DEFAULT_POWER_MODE);
 
+  // ===== RainMaker =====
   Node my_node = RMaker.initNode("ESP RainMaker Node");
 
   my_switch = new Switch("Switch", &gpio_switch);
   my_switch->addCb(write_callback);
   my_node.addDevice(*my_switch);
+
+  // 🔁 Sincroniza estado inicial OFF no app
+  my_switch->updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, DEFAULT_POWER_MODE);
 
   RMaker.enableOTA(OTA_USING_TOPICS);
   RMaker.enableTZService();
@@ -140,10 +149,10 @@ void setup() {
 
 #if CONFIG_IDF_TARGET_ESP32S2
   WiFiProv.initProvision(NETWORK_PROV_SCHEME_SOFTAP,
-                          NETWORK_PROV_SCHEME_HANDLER_NONE);
+                         NETWORK_PROV_SCHEME_HANDLER_NONE);
 #else
   WiFiProv.initProvision(NETWORK_PROV_SCHEME_BLE,
-                          NETWORK_PROV_SCHEME_HANDLER_FREE_BTDM);
+                         NETWORK_PROV_SCHEME_HANDLER_FREE_BTDM);
 #endif
 
   RMaker.start();
@@ -152,14 +161,16 @@ void setup() {
 #if CONFIG_IDF_TARGET_ESP32S2
   WiFiProv.beginProvision(NETWORK_PROV_SCHEME_SOFTAP,
                           NETWORK_PROV_SCHEME_HANDLER_NONE,
-                          NETWORK_PROV_SECURITY_1, pop, service_name);
+                          NETWORK_PROV_SECURITY_1,
+                          pop, service_name);
 #else
   WiFiProv.beginProvision(NETWORK_PROV_SCHEME_BLE,
                           NETWORK_PROV_SCHEME_HANDLER_FREE_BTDM,
-                          NETWORK_PROV_SECURITY_1, pop, service_name);
+                          NETWORK_PROV_SECURITY_1,
+                          pop, service_name);
 #endif
 
-  // ===== CRIA TASKS =====
+  // ===== TASKS =====
   xTaskCreatePinnedToCore(ledWifiTask, "LED_WIFI", 2048, NULL, 1, NULL, 1);
   xTaskCreatePinnedToCore(ledMsgTask,  "LED_MSG",  2048, NULL, 1, NULL, 1);
 }
@@ -176,13 +187,21 @@ void loop() {
     if (pressTime > 10000) {
       Serial.println("Factory Reset");
       RMakerFactoryReset(2);
+
     } else if (pressTime > 3000) {
       Serial.println("WiFi Reset");
       RMakerWiFiReset(2);
+
     } else {
+      // 🔘 Botão físico
       switch_state = !switch_state;
       msgReceived = true;
-      my_switch->updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, switch_state);
+
+      my_switch->updateAndReportParam(
+        ESP_RMAKER_DEF_POWER_NAME,
+        switch_state
+      );
+
       digitalWrite(gpio_switch, switch_state ? HIGH : LOW);
     }
   }
